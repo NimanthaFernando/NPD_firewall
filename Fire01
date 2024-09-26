@@ -1,0 +1,193 @@
+import tkinter as tk
+from tkinter import ttk
+import subprocess
+import threading
+from scapy.all import sniff, IP, TCP, UDP, ICMP
+
+class FirewallApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Enhanced Simple Firewall for CentOS")
+
+        # Initialize rule list
+        self.rules = []
+
+        # Create frames for better organization
+        self.create_interface_selection_frame()
+        self.create_rule_input_frame()
+        self.create_firewall_control_frame()
+        self.create_log_area()
+
+        # Control variables
+        self.sniffing = False
+        self.firewall_active = False
+
+    def create_interface_selection_frame(self):
+        # Frame for network interface selection
+        self.interface_frame = tk.Frame(self.root)
+        self.interface_frame.pack(pady=10)
+
+        tk.Label(self.interface_frame, text="Select Network Interface:").grid(row=0, column=0)
+        self.selected_interface = tk.StringVar()
+        self.interface_dropdown = ttk.Combobox(self.interface_frame, textvariable=self.selected_interface)
+        self.interface_dropdown['values'] = ['eth0', 'eth1', 'lo']  # Example interfaces
+        self.interface_dropdown.grid(row=0, column=1)
+        self.interface_dropdown.current(0)
+
+    def create_rule_input_frame(self):
+        # Frame for inputting source/destination rules
+        self.rule_frame = tk.Frame(self.root)
+        self.rule_frame.pack(pady=10)
+
+        # Source IP
+        tk.Label(self.rule_frame, text="Source IP:").grid(row=0, column=0)
+        self.src_ip_entry = tk.Entry(self.rule_frame)
+        self.src_ip_entry.grid(row=0, column=1)
+
+        # Destination IP
+        tk.Label(self.rule_frame, text="Destination IP:").grid(row=1, column=0)
+        self.dst_ip_entry = tk.Entry(self.rule_frame)
+        self.dst_ip_entry.grid(row=1, column=1)
+
+        # Port
+        tk.Label(self.rule_frame, text="Port:").grid(row=2, column=0)
+        self.port_entry = tk.Entry(self.rule_frame)
+        self.port_entry.grid(row=2, column=1)
+
+        # Protocol
+        tk.Label(self.rule_frame, text="Protocol:").grid(row=3, column=0)
+        self.protocol_var = tk.StringVar()
+        self.protocol_dropdown = ttk.Combobox(self.rule_frame, textvariable=self.protocol_var)
+        self.protocol_dropdown['values'] = ['tcp', 'udp']
+        self.protocol_dropdown.grid(row=3, column=1)
+        self.protocol_dropdown.current(0)
+
+        # Buttons for adding rules
+        self.add_rule_button = tk.Button(self.rule_frame, text="Add Rule", command=self.add_rule)
+        self.add_rule_button.grid(row=4, column=0)
+
+        self.delete_rule_button = tk.Button(self.rule_frame, text="Delete Rule", command=self.delete_rule)
+        self.delete_rule_button.grid(row=4, column=1)
+
+    def create_firewall_control_frame(self):
+        # Frame for firewall control buttons (Start/Stop)
+        self.control_frame = tk.Frame(self.root)
+        self.control_frame.pack(pady=10)
+
+        self.start_button = tk.Button(self.control_frame, text="Start Firewall", command=self.start_firewall)
+        self.start_button.grid(row=0, column=0)
+
+        self.stop_button = tk.Button(self.control_frame, text="Stop Firewall", command=self.stop_firewall, state=tk.DISABLED)
+        self.stop_button.grid(row=0, column=1)
+
+    def create_log_area(self):
+        # Log text area for firewall logs and packet inspection
+        self.log_text = tk.Text(self.root, height=20, width=80)
+        self.log_text.pack(pady=10)
+
+    def add_rule(self):
+        src_ip = self.src_ip_entry.get().strip()
+        dst_ip = self.dst_ip_entry.get().strip()
+        port = self.port_entry.get().strip()
+        protocol = self.protocol_var.get()
+
+        rule = {
+            "src_ip": src_ip,
+            "dst_ip": dst_ip,
+            "port": port,
+            "protocol": protocol
+        }
+
+        # Add rule to the list and apply immediately
+        self.rules.append(rule)
+        self.update_rule_listbox()
+        self.apply_rules()
+
+    def delete_rule(self):
+        selected_rule_index = self.rule_listbox.curselection()
+        if not selected_rule_index:
+            self.log_text.insert(tk.END, "No rule selected for deletion.\n")
+            return
+
+        rule_to_remove = self.rules[selected_rule_index[0]]
+        self.remove_rule_from_iptables(rule_to_remove)
+        del self.rules[selected_rule_index[0]]
+        self.update_rule_listbox()
+
+    def start_firewall(self):
+        if not self.firewall_active:
+            self.firewall_active = True
+            self.log_text.insert(tk.END, "Firewall started...\n")
+            self.start_button.config(state=tk.DISABLED)
+            self.stop_button.config(state=tk.NORMAL)
+
+            self.sniffing = True
+            threading.Thread(target=self.sniff_packets, daemon=True).start()
+
+            self.apply_rules()
+
+    def stop_firewall(self):
+        if self.firewall_active:
+            self.firewall_active = False
+            self.sniffing = False
+            self.start_button.config(state=tk.NORMAL)
+            self.stop_button.config(state=tk.DISABLED)
+            self.log_text.insert(tk.END, "Firewall stopped...\n")
+
+    def apply_rules(self):
+        for rule in self.rules:
+            src_ip = rule.get("src_ip")
+            dst_ip = rule.get("dst_ip")
+            port = rule.get("port")
+            protocol = rule.get("protocol")
+
+            if src_ip and dst_ip and port and protocol:
+                iptables_command = f"-A INPUT -s {src_ip} -d {dst_ip} -p {protocol} --dport {port} -j DROP"
+                self.execute_iptables_command(iptables_command)
+                self.log_text.insert(tk.END, f"Blocked {protocol.upper()} from {src_ip} to {dst_ip}:{port}\n")
+
+    def sniff_packets(self):
+        interface = self.selected_interface.get()
+
+        def packet_callback(packet):
+            if not self.sniffing:
+                return
+            if IP in packet:
+                src_ip = packet[IP].src
+                dst_ip = packet[IP].dst
+                protocol = "TCP" if TCP in packet else "UDP" if UDP in packet else "Other"
+                log_message = f"{protocol} Packet: {src_ip} -> {dst_ip}\n"
+                self.log_text.insert(tk.END, log_message)
+                self.log_text.see(tk.END)
+
+        sniff(iface=interface, prn=packet_callback, store=0, stop_filter=lambda x: not self.sniffing)
+
+    def remove_rule_from_iptables(self, rule):
+        src_ip = rule.get("src_ip")
+        dst_ip = rule.get("dst_ip")
+        port = rule.get("port")
+        protocol = rule.get("protocol")
+
+        if src_ip and dst_ip and port and protocol:
+            iptables_command = f"-D INPUT -s {src_ip} -d {dst_ip} -p {protocol} --dport {port} -j DROP"
+            self.execute_iptables_command(iptables_command)
+            self.log_text.insert(tk.END, f"Unblocked {protocol.upper()} from {src_ip} to {dst_ip}:{port}\n")
+
+    def execute_iptables_command(self, command):
+        try:
+            subprocess.run(f"sudo iptables {command}", shell=True, check=True)
+        except subprocess.CalledProcessError as e:
+            self.log_text.insert(tk.END, f"Error executing iptables command: {command}\n")
+
+    def update_rule_listbox(self):
+        # Clear and update rule listbox
+        self.rule_listbox.delete(0, tk.END)
+        for rule in self.rules:
+            rule_str = f"Source: {rule['src_ip']} -> Dest: {rule['dst_ip']} Port: {rule['port']} Protocol: {rule['protocol']}"
+            self.rule_listbox.insert(tk.END, rule_str)
+
+
+# Create the main window
+root = tk.Tk()
+app = FirewallApp(root)
+root.mainloop()
