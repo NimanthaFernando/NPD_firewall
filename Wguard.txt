@@ -1,0 +1,40 @@
+**Clent**
+[Interface]
+Address = 10.0.0.2/8
+SaveConfig = true
+ListenPort = 56689
+FwMark = 0xca6c
+PrivateKey = GNm9iXBroEiNIcMtk8bxDnNEZlads0DdPDvqXM4e/mA=
+
+
+[Peer]
+PublicKey=pEvENDHs17exPt8MIKTjNfEQ0R3ZQySdtLBW6wqxiCY=
+AllowedIPs=0.0.0.0/0
+Endpoint=172.168.3.34:51820
+PersistentKeepalive=30
+means that every 30 seconds, WireGuard will send a keepalive packet to the peer. 
+This is useful for ensuring that the NAT mappings on the intermediate devices stay active and the connection doesn't drop due to inactivity.
+
+
+**Server**
+[Interface]
+Address = 10.0.0.1/8
+SaveConfig = true
+PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ens160 -j MASQUERADE;
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o en160 -j MASQUERADE;
+wg-quick up wg0 and wg-quick down wg0 for start and stop wiregurd 
+
+ListenPort = 51820
+PrivateKey = AGEmM0XiGYHauJupHqYxl4juTGyL8B1h3q7GkOeikVw=
+
+give client publickey
+wg set wg0 peer pEvENDHs17exPt8MIKTjNfEQ0R3ZQySdtLBW6wqxiCY= allowed-ips 10.0.0.2/32
+
+
+tcpdump -envi wg0 host 10.0.0.2 **dump for provment**
+wg-quick down wg0
+
+wg genkey | tee privatekey | wg pubkey > publickey
+
+https://github.com/ChristianLempa/videos/tree/main/wireguard-on-linux
+

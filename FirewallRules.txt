@@ -1,0 +1,12 @@
+sudo iptables -A FORWARD -s 192.168.3.32 -d 172.168.3.30 -j DROP  === make firewall rull
+sudo iptables -D FORWARD -s 192.168.3.32 -d 172.168.3.30 -j DROP  === delete firewall rull
+
+sudo iptables -A FORWARD -s 192.168.1.10 -d 10.10.10.10 -p icmp -i ens192 -j DROP
+sudo iptables -A FORWARD -s 192.168.1.10 -d 10.10.10.10 -p tcp --dport 80 -i ens192 -j DROP
+sudo iptables -A FORWARD -s 192.168.1.10 -d 10.10.10.10 -p udp --dport 80 -i ens192 -j DROP
+
+iptables -L -v -n
+
+iptables -L -v -n --line-numbers
+
+sudo iptables -D INPUT <line-number>
