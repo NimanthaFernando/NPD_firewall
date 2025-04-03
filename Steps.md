@@ -52,7 +52,7 @@ then install pyroute2:
 Ensure that IP forwarding is enabled on VM 2 so that it can route packets between the two networks:
 
     sysctl -w net.ipv4.ip_forward=1
-
+----------------------------------------------------------
     sudo ip route delete 172.168.3.0/24 dev ens160
 
 
